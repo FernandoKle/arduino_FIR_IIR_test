@@ -66,13 +66,15 @@ fixed_type w[N] =
 #else
 // Filtro IIR
 // Polos - A
-fixed_type a[N_IIR] = 
+// Agregar un coef 0.0
+fixed_type a[N_IIR+1] =
 {
 1.0,
 -3.180638548874719,
 3.8611943489942133,
 -2.112155355110969,
-0.43826514226197977
+0.43826514226197977,
+0
 };
 
 // Ceros - B
@@ -146,7 +148,7 @@ filtro_IIR ()
 	for (uint8_t i = 0; i<N_IIR; i++)
 	{
 		aux += b[i] * x[ (x_index + N - 1 - i) & (BUFFER_SIZE - 1) ]
-			 - a[i] * y[ (y_index + N - 1 - i) & (BUFFER_SIZE - 1) ];
+		   - a[i+1] * y[ (y_index + N - 1 - i) & (BUFFER_SIZE - 1) ];
 	}
 	
 	y[y_index] = aux ;
@@ -155,6 +157,7 @@ filtro_IIR ()
 	return aux ;
 }
 #endif
+
 // Punto fijo 0~1 a entero 0~255
 uint8_t inline
 escalar (fixed_type val)
@@ -167,7 +170,8 @@ escalar (fixed_type val)
 	#else
 	// Para SFixed<5, 26>
 	uint32_t internal = val.getInternal();
-	uint8_t salida = internal >> 19 ;
+	//uint8_t salida = internal >> 19 ;
+	uint8_t salida = internal >> 23 ;
 	#endif
 
 	if (salida < 0)
