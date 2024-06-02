@@ -8,6 +8,7 @@ Por: Fernando Kleinubing
 #include <util/delay.h> // _delay_ms(tiempo_en_ms)
 #include <avr/interrupt.h>
 
+// https://github.com/Pharap/FixedPointsArduino
 #include <FixedPoints.h>
 #include <FixedPointsCommon.h>
 
@@ -22,54 +23,74 @@ Por: Fernando Kleinubing
 #define is_high(p,b) ( (p & _BV(b)) == _BV(b) )
 #define is_low(p,b) ( (p & _BV(b)) == 0 )
 
+// TIPO DE FILTRO A USAR
+//#define FIR // comentar para usar IIR
+
+#ifndef FIR
+	#define IIR
+#endif
+
 // Tipo de dato a usar: Q-15
+#ifdef FIR
 typedef SFixed<1, 14> fixed_type;
 
-// coeficientes
-#define N 33 
-// buffer de recepcion de datos DEBE SER POTENCIA DE 2
-#define BUFFER_SIZE 128
+#else
+// los IIR necesitan mas precision y parte entera
+typedef SFixed<5, 26> fixed_type;
+#endif
 
-// Globals
+// Numero de coeficientes FIR
+#define N 9 
+// Numero de coeficientes IIR
+#define N_IIR 5
+// buffer de recepcion de datos DEBE SER POTENCIA DE 2
+#define BUFFER_SIZE 64
+
+#ifdef FIR
+// Filtro FIR
 fixed_type w[N] = 
 {
-0.0015115451098377376,
-0.0018825913790288383,
-0.002483585545241963,
-0.0031160595343624215,
-0.0033433106148237557,
-0.0025399291880564756,
--1.558506734552068e-17,
--0.004914128527513414,
--0.012611514421013636,
--0.023134852490067574,
--0.03607727546279237,
--0.05057652387209304,
--0.0653946653020385,
--0.0790744643582674,
--0.09014753340161663,
--0.09735795708930048,
-0.8987464021635272,
--0.09735795708930048,
--0.09014753340161663,
--0.0790744643582674,
--0.0653946653020385,
--0.05057652387209304,
--0.03607727546279239,
--0.023134852490067574,
--0.012611514421013636,
--0.004914128527513413,
--1.558506734552067e-17,
-0.0025399291880564756,
-0.0033433106148237557,
-0.0031160595343624215,
-0.0024835855452419653,
-0.0018825913790288383,
-0.0015115451098377376
+0.014407925284062201,
+0.0438627666677571,
+0.12021193169441212,
+0.2025343520793387,
+0.2379660485488598,
+0.2025343520793387,
+0.12021193169441212,
+0.0438627666677571,
+0.014407925284062201
 };
 
+#else
+// Filtro IIR
+// Polos - A
+fixed_type a[N_IIR] = 
+{
+1.0,
+-3.180638548874719,
+3.8611943489942133,
+-2.112155355110969,
+0.43826514226197977
+};
+
+// Ceros - B
+fixed_type b[N_IIR] = 
+{
+0.00041659920440659937,
+0.0016663968176263975,
+0.002499595226439596,
+0.0016663968176263975,
+0.00041659920440659937
+};
+#endif
+
 fixed_type x[BUFFER_SIZE] = {0};
-uint16_t rx_index = 0 ;
+uint8_t x_index = 0 ;
+
+#ifdef IIR
+fixed_type y[BUFFER_SIZE] = {0};
+uint8_t y_index = 0 ;
+#endif
 
 void 
 serial_init ()
@@ -90,6 +111,7 @@ serial_send (uint8_t data)
 	UDR0 = data;
 }
 
+#ifdef FIR
 fixed_type
 filtro_FIR ()
 {
@@ -101,23 +123,50 @@ filtro_FIR ()
 	#endif
 	for (uint16_t i = 0; i<N; i++)
 	{
-		// Si el BUFFER_SIZE NO es potencia de 2
-		//y += w[i] * x[ (rx_index + N - 1 - i) % BUFFER_SIZE] ;
-		// Si el BUFFER_SIZE es potencia de 2
-		y += w[i] * x[ (rx_index + N - 1 - i) & (BUFFER_SIZE - 1) ] ;
+		// Si BUFFER_SIZE NO es potencia de 2
+		// Usar: x[ (x_index + N - 1 - i) % BUFFER_SIZE] ;
+		// Si BUFFER_SIZE es potencia de 2
+		// Usar: x[ (x_index + N - 1 - i) & (BUFFER_SIZE - 1) ] ;
+
+		y += w[i] * x[ (x_index + N - 1 - i) & (BUFFER_SIZE - 1) ] ;
 	}
 
 	return y ;
 }
 
+#else
+fixed_type
+filtro_IIR ()
+{
+	fixed_type aux = 0 ;
+
+	#pragma unroll
+	for (uint8_t i = 0; i<N_IIR; i++)
+	{
+		aux += b[i] * x[ (x_index + N - 1 - i) & (BUFFER_SIZE - 1) ]
+			 - a[i] * y[ (y_index + N - 1 - i) & (BUFFER_SIZE - 1) ];
+	}
+	
+	y[y_index] = aux ;
+	y_index = (y_index + 1) % BUFFER_SIZE;
+
+	return aux ;
+}
+#endif
 // Punto fijo 0~1 a entero 0~255
 uint8_t inline
 escalar (fixed_type val)
 {
-	//float escalado = val * 255.0f;
-	//uint8_t salida = static_cast<uint8_t>(escalado);
+	#ifdef FIR
+	// Para SFixed<1, 14> 
 	uint16_t internal = val.getInternal();
 	uint8_t salida = internal >> 7 ;
+
+	#else
+	// Para SFixed<5, 26>
+	uint32_t internal = val.getInternal();
+	uint8_t salida = internal >> 19 ;
+	#endif
 
 	if (salida < 0)
     	return 0;
@@ -132,19 +181,34 @@ escalar (fixed_type val)
 ISR (USART_RX_vect) 
 {
 	// Recibir, procesar y almacenar
-	uint16_t dato = UDR0 ; // esperando valores en rango 0~255
 
 	// Desplaza el valor de 8 bits 0~255 
 	// de tal forma que 255 (max) se mapee a 1.0 (max)
+
+	#ifdef FIR
 	// Para SFixed<1, 14> 
 	// 0000000011111111 << 7 => 01.11111110000000
-    x[rx_index] = fixed_type::fromInternal(dato << 7);
+	uint16_t dato = UDR0 ; 
+    x[x_index] = fixed_type::fromInternal(dato << 7);
+
+	#else
+	// Para SFixed<5, 26>
+	// 00000000000000000000000011111111 << 19 => 000001.11111110000000000000000000
+	uint32_t dato = UDR0 ; 
+    x[x_index] = fixed_type::fromInternal(dato << 19);
+	#endif
 
 	// Actualizar el índice y asegurar que no exceda el tamaño del buffer
-    rx_index = (rx_index + 1) % BUFFER_SIZE; 
+    x_index = (x_index + 1) % BUFFER_SIZE; 
 
 	// Procesar y enviar
-	uint8_t salida = escalar( filtro_FIR() );
+	#ifdef FIR
+	fixed_type pre_salida = filtro_FIR();
+	#else
+	fixed_type pre_salida = filtro_IIR();
+	#endif
+
+	uint8_t salida = escalar( pre_salida );
 
 	serial_send( salida );
 }
