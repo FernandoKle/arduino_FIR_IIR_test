@@ -1,4 +1,4 @@
-/*! Test de tiempos y presision de punto fijo, flotante y flotante hecho a mano
+/*! Prueba de implementación de filtros FIR e IIR en un 328p (Arduino UNO)
 Por: Fernando Kleinubing
 */
 #include <stdio.h>
