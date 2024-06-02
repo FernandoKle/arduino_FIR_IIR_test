@@ -24,7 +24,9 @@ Por: Fernando Kleinubing
 #define is_low(p,b) ( (p & _BV(b)) == 0 )
 
 // TIPO DE FILTRO A USAR
-//#define FIR // comentar para usar IIR
+
+// comentar para usar IIR
+//#define FIR 
 
 #ifndef FIR
 	#define IIR
