@@ -132,7 +132,7 @@ filtro_FIR ()
 		// Si BUFFER_SIZE es potencia de 2
 		// Usar: x[ (x_index + N - 1 - i) & (BUFFER_SIZE - 1) ] ;
 
-		y += w[i] * x[ (x_index + N - 1 - i) & (BUFFER_SIZE - 1) ] ;
+		y += w[i] * x[ (x_index - i) & (BUFFER_SIZE - 1) ] ;
 	}
 
 	return y ;
@@ -147,8 +147,8 @@ filtro_IIR ()
 	#pragma unroll
 	for (uint8_t i = 0; i<N_IIR; i++)
 	{
-		aux += b[i] * x[ (x_index + N - 1 - i) & (BUFFER_SIZE - 1) ]
-		   - a[i+1] * y[ (y_index + N - 1 - i) & (BUFFER_SIZE - 1) ];
+		aux += b[i] * x[ (x_index - i) & (BUFFER_SIZE - 1) ]
+		   - a[i+1] * y[ (y_index - i) & (BUFFER_SIZE - 1) ];
 	}
 	
 	y[y_index] = aux ;
